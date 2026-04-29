@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>3D Tic-Tac-Toe</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#0e0e12;min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-family:'DM Mono',monospace;color:#e8e6f0;
+  padding:1rem;gap:10px;
+}
+h1{font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:6px;line-height:1;text-align:center}
+
+.group{display:flex;flex-direction:column;align-items:center;gap:5px}
+.group-label{font-size:9px;color:#44445a;letter-spacing:2px;text-transform:uppercase}
+.tabs{display:flex;gap:6px}
+.tab{
+  font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;
+  padding:5px 14px;border:1px solid #2a2a3a;border-radius:20px;
+  background:transparent;color:#666688;cursor:pointer;transition:all .15s;
+}
+.tab:hover{background:#1e1e2e;color:#ccc}
+.tab.on      {background:#1e1e2e;color:#e8e6f0;border-color:#4a4a6a}
+.tab.easy-on {border-color:#1D9E75!important;color:#1D9E75!important;background:#0a1a12!important}
+.tab.med-on  {border-color:#d4900a!important;color:#d4900a!important;background:#1a140a!important}
+.tab.hard-on {border-color:#cc3333!important;color:#ff5555!important;background:#1a0a0a!important}
+
+.status-bar{display:flex;align-items:center;gap:8px}
+.dot{width:9px;height:9px;border-radius:50%;transition:background .2s}
+.dx{background:#7F77DD}.do{background:#1D9E75}.doff{background:#2a2a3a}
+.stxt{
+  font-size:11px;color:#8888aa;letter-spacing:2px;text-transform:uppercase;
+  width:220px;text-align:center;
+}
+
+/* ── BOARD ── */
+#wrap{
+  position:relative;width:330px;height:330px;
+  background:#111118;border:1px solid #22223a;border-radius:14px;
+  overflow:hidden;user-select:none;
+}
+
+/* Layer 1 — CSS grid (clicks come here via overlay math) */
+#grid{
+  position:absolute;inset:0;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  grid-template-rows:repeat(3,1fr);
+  z-index:1;
+}
+.cell{
+  cursor:pointer;background:transparent;border:0;
+  transition:background .12s;
+}
+.cell:hover:not(.taken){background:rgba(100,95,200,0.09)}
+.cell.taken{cursor:default}
+/* BUG FIX: correct grid lines — only rows 1&2 get bottom border, only cols 1&2 get right border */
+.cell:nth-child(1),.cell:nth-child(2),.cell:nth-child(3),
+.cell:nth-child(4),.cell:nth-child(5),.cell:nth-child(6){
+  border-bottom:1.5px solid #2a2a42;
+}
+.cell:nth-child(1),.cell:nth-child(2),
+.cell:nth-child(4),.cell:nth-child(5),
+.cell:nth-child(7),.cell:nth-child(8){
+  border-right:1.5px solid #2a2a42;
+}
+.cell.win-cell{background:rgba(110,104,220,0.18)!important}
+
+/* Layer 2 — Three.js canvas, pointer-events NONE always */
+#cnv{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  z-index:2;
+  pointer-events:none;
+  display:block;
+}
+
+/* Layer 3 — drag/click overlay */
+#ov{
+  position:absolute;inset:0;
+  z-index:3;
+  cursor:grab;
+}
+#ov.dragging{cursor:grabbing}
+#spin-hint{
+  position:absolute;bottom:7px;right:9px;
+  font-size:9px;color:#22223a;
+  z-index:4;pointer-events:none;
+}
+
+.scores{display:flex;gap:8px}
+.sc{
+  background:#141420;border:1px solid #222230;
+  border-radius:10px;padding:6px 12px;
+  text-align:center;min-width:74px;
+}
+.sc-lbl{font-size:9px;color:#44445a;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:1px}
+.sc-num{font-family:'Bebas Neue',sans-serif;font-size:28px;line-height:1.1;color:#e8e6f0}
+.scx .sc-num{color:#7F77DD}.sco .sc-num{color:#1D9E75}
+
+.btns{display:flex;gap:7px}
+.btn{
+  font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+  padding:5px 12px;border:1px solid #2a2a3a;border-radius:8px;
+  background:transparent;color:#666688;cursor:pointer;transition:all .12s;
+}
+.btn:hover{background:#1a1a28;color:#e8e6f0}
+
+#thinking{
+  font-size:10px;color:#44445a;letter-spacing:2px;
+  text-transform:uppercase;height:14px;text-align:center;
+}
+</style>
+</head>
+<body>
+
+<h1>Tic·Tac·Toe</h1>
+
+<div class="group">
+  <span class="group-label">Mode</span>
+  <div class="tabs">
+    <button class="tab on" id="m-hvh">👥 vs Human</button>
+    <button class="tab"    id="m-hvc">🤖 vs AI</button>
+  </div>
+</div>
+
+<div class="group" id="diff-grp" style="display:none">
+  <span class="group-label">Difficulty</span>
+  <div class="tabs">
+    <button class="tab easy-on" id="d-easy">🟢 Easy</button>
+    <button class="tab"         id="d-med" >🟡 Medium</button>
+    <button class="tab"         id="d-hard">🔴 Hard</button>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="dot dx"   id="dot-x"></div>
+  <div class="stxt"     id="stxt">X's turn</div>
+  <div class="dot doff" id="dot-o"></div>
+</div>
+
+<div id="wrap">
+  <div id="grid">
+    <div class="cell" data-i="0"></div><div class="cell" data-i="1"></div><div class="cell" data-i="2"></div>
+    <div class="cell" data-i="3"></div><div class="cell" data-i="4"></div><div class="cell" data-i="5"></div>
+    <div class="cell" data-i="6"></div><div class="cell" data-i="7"></div><div class="cell" data-i="8"></div>
+  </div>
+  <canvas id="cnv"></canvas>
+  <div id="ov"></div>
+  <div id="spin-hint">drag to spin ↻</div>
+</div>
+
+<div id="thinking"></div>
+
+<div class="scores">
+  <div class="sc scx"><div class="sc-lbl">X Wins</div><div class="sc-num" id="sx">0</div></div>
+  <div class="sc">    <div class="sc-lbl">Draws</div> <div class="sc-num" id="sd">0</div></div>
+  <div class="sc sco"><div class="sc-lbl">O Wins</div><div class="sc-num" id="so">0</div></div>
+</div>
+
+<div class="btns">
+  <button class="btn" id="new-btn">New Game</button>
+  <button class="btn" id="rst-btn">Reset Scores</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ══════════════════════════════
+   THREE.JS
+══════════════════════════════ */
+const cnv = document.getElementById('cnv');
+const renderer = new THREE.WebGLRenderer({canvas:cnv, antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0, 0);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+camera.position.set(0, 0, 10.5);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1); sun.position.set(5,7,8); scene.add(sun);
+const rim = new THREE.DirectionalLight(0x8899ff, 0.35); rim.position.set(-5,-5,-5); scene.add(rim);
+
+const pivot = new THREE.Group();
+scene.add(pivot);
+
+function resizeRenderer(){
+  const W = cnv.clientWidth  || 330;
+  const H = cnv.clientHeight || 330;
+  renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+}
+resizeRenderer();
+window.addEventListener('resize', resizeRenderer);
+
+let tRX=0, tRY=0, rX=0, rY=0;
+let pieces=[], wires=[];
+
+/* ── Cell centre in Three.js world space ──
+   We reverse-project each CSS cell's centre pixel through the camera
+   so the 3D piece lands EXACTLY on the visible cell centre,
+   regardless of FOV, aspect ratio, or canvas size.             */
+function cp(i){
+  const col = i % 3;
+  const row = Math.floor(i / 3);
+
+  /* normalised device coords of cell centre (-1 … +1) */
+  const ndcX = (col + 0.5) / 3 * 2 - 1;   //  left=-1, right=+1
+  const ndcY = -((row + 0.5) / 3 * 2 - 1); //  top=+1,  bottom=-1 (Y flipped)
+
+  /* unproject onto z=0 plane */
+  const vec = new THREE.Vector3(ndcX, ndcY, 0.5);
+  vec.unproject(camera);
+  const dir = vec.sub(camera.position).normalize();
+  const dist = -camera.position.z / dir.z;   // z=0 plane
+  return camera.position.clone().addScaledVector(dir, dist);
+}
+
+function scalePop(obj){
+  const t0 = performance.now();
+  (function go(){
+    const t = Math.min((performance.now()-t0)/200, 1);
+    obj.scale.setScalar(1 - Math.pow(1-t, 3));
+    if(t < 1) requestAnimationFrame(go);
+  })();
+}
+
+function spawnX(i){
+  const g   = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({color:0x7766EE, shininess:100, specular:0xaaaaff});
+  const bar = new THREE.BoxGeometry(1.80, 0.30, 0.30);
+  [Math.PI/4, -Math.PI/4].forEach(a => {
+    const m = new THREE.Mesh(bar, mat); m.rotation.z = a; g.add(m);
+  });
+  g.position.copy(cp(i));
+  g.scale.setScalar(0.01);
+  pivot.add(g); scalePop(g);
+  return g;
+}
+
+function spawnO(i){
+  const mat  = new THREE.MeshPhongMaterial({color:0x14956A, shininess:100, specular:0x00ffbb});
+  const mesh = new THREE.Mesh(new THREE.TorusGeometry(0.70, 0.21, 24, 64), mat);
+  mesh.position.copy(cp(i));
+  mesh.scale.setScalar(0.01);
+  pivot.add(mesh); scalePop(mesh);
+  return mesh;
+}
+
+function spawnWinLine(combo){
+  const a = cp(combo[0]), b = cp(combo[2]);
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  const len = a.distanceTo(b) + 0.6;
+  const mat = new THREE.MeshPhongMaterial({color:0xB0AAFF});
+  const m   = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, len, 16), mat);
+  m.position.set(mid.x, mid.y, 0.25);
+  m.rotation.z = Math.atan2(b.y - a.y, b.x - a.x) + Math.PI/2;
+  m.scale.setScalar(0.01);
+  pivot.add(m); scalePop(m);
+  wires.push(m);
+}
+
+/* render loop */
+(function loop(){
+  requestAnimationFrame(loop);
+  rX += (tRX - rX) * 0.09;
+  rY += (tRY - rY) * 0.09;
+  pivot.rotation.x = rX;
+  pivot.rotation.y = rY;
+  renderer.render(scene, camera);
+})();
+
+/* ══════════════════════════════
+   DRAG / CLICK
+   BUG FIX: track mousedownOnOverlay separately
+   so window mouseup doesn't fire spurious clicks
+══════════════════════════════ */
+const ov = document.getElementById('ov');
+let dragging = false;
+let mouseDownOnOverlay = false;
+let dS = {x:0, y:0}, dL = {x:0, y:0};
+
+function screenToCell(ex, ey){
+  const r  = document.getElementById('wrap').getBoundingClientRect();
+  const lx = ex - r.left, ly = ey - r.top;
+  if(lx < 0 || ly < 0 || lx > r.width || ly > r.height) return -1;
+  const col = Math.floor(lx / (r.width  / 3));
+  const row = Math.floor(ly / (r.height / 3));
+  return row * 3 + col;
+}
+
+ov.addEventListener('mousedown', e => {
+  dragging = false;
+  mouseDownOnOverlay = true;
+  dS = {x: e.clientX, y: e.clientY};
+  dL = {x: e.clientX, y: e.clientY};
+});
+
+window.addEventListener('mousemove', e => {
+  if(!(e.buttons & 1) || !mouseDownOnOverlay) return;
+  if(Math.abs(e.clientX - dS.x) > 5 || Math.abs(e.clientY - dS.y) > 5) dragging = true;
+  if(dragging){
+    tRY += (e.clientX - dL.x) * 0.013;
+    tRX += (e.clientY - dL.y) * 0.013;
+    tRX = Math.max(-1.4, Math.min(1.4, tRX));
+    dL = {x: e.clientX, y: e.clientY};
+    ov.classList.add('dragging');
+  }
+});
+
+window.addEventListener('mouseup', e => {
+  if(mouseDownOnOverlay && !dragging){
+    const i = screenToCell(e.clientX, e.clientY);
+    if(i >= 0) humanClick(i);
+  }
+  dragging = false;
+  mouseDownOnOverlay = false;
+  ov.classList.remove('dragging');
+});
+
+/* Touch */
+ov.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  dragging = false;
+  dS = {x: t.clientX, y: t.clientY};
+  dL = {x: t.clientX, y: t.clientY};
+}, {passive:false});
+
+ov.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  if(Math.abs(t.clientX - dS.x) > 6 || Math.abs(t.clientY - dS.y) > 6) dragging = true;
+  if(dragging){
+    tRY += (t.clientX - dL.x) * 0.013;
+    tRX += (t.clientY - dL.y) * 0.013;
+    tRX = Math.max(-1.4, Math.min(1.4, tRX));
+    dL = {x: t.clientX, y: t.clientY};
+  }
+}, {passive:false});
+
+ov.addEventListener('touchend', e => {
+  e.preventDefault();
+  if(!dragging){
+    const t = e.changedTouches[0];
+    const i = screenToCell(t.clientX, t.clientY);
+    if(i >= 0) humanClick(i);
+  }
+  dragging = false;
+}, {passive:false});
+
+/* ══════════════════════════════
+   GAME STATE
+══════════════════════════════ */
+const WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+let board = Array(9).fill(null), turn = 'X', over = false;
+let vsAI = false, diff = 'easy';
+let sc = {X:0, O:0, D:0};
+
+function checkWinner(b){
+  for(const w of WINS)
+    if(b[w[0]] && b[w[0]] === b[w[1]] && b[w[0]] === b[w[2]]) return w;
+  return null;
+}
+
+/* ══════════════════════════════
+   MINIMAX
+   O = maximiser  (+10 = O wins)
+   X = minimiser  (-10 = X wins)
+
+   BUG FIX: aiHard() calls minimax with
+   isOturn=true (O is about to play),
+   NOT false like before.
+══════════════════════════════ */
+function minimax(b, isOturn, depth, alpha, beta){
+  const w = checkWinner(b);
+  if(w) return b[w[0]] === 'O' ? (10 - depth) : (depth - 10);
+  if(b.every(Boolean)) return 0;
+
+  if(isOturn){
+    let best = -Infinity;
+    for(let i = 0; i < 9; i++){
+      if(b[i]) continue;
+      b[i] = 'O';
+      best = Math.max(best, minimax(b, false, depth+1, alpha, beta));
+      b[i] = null;
+      alpha = Math.max(alpha, best);
+      if(beta <= alpha) break;
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for(let i = 0; i < 9; i++){
+      if(b[i]) continue;
+      b[i] = 'X';
+      best = Math.min(best, minimax(b, true, depth+1, alpha, beta));
+      b[i] = null;
+      beta = Math.min(beta, best);
+      if(beta <= alpha) break;
+    }
+    return best;
+  }
+}
+
+/* Easy — 100% random */
+function aiEasy(){
+  const emp = board.map((_,i) => i).filter(i => !board[i]);
+  return emp[Math.floor(Math.random() * emp.length)];
+}
+
+/* Medium — wins/blocks but makes random mistake 45% of the time */
+function aiMedium(){
+  const emp = board.map((_,i) => i).filter(i => !board[i]);
+  if(Math.random() < 0.45) return emp[Math.floor(Math.random() * emp.length)];
+  for(const i of emp){ board[i]='O'; const w=checkWinner(board); board[i]=null; if(w) return i; }
+  for(const i of emp){ board[i]='X'; const w=checkWinner(board); board[i]=null; if(w) return i; }
+  const pref = [4, 0, 2, 6, 8, 1, 3, 5, 7];
+  for(const p of pref) if(!board[p]) return p;
+  return emp[0];
+}
+
+/* Hard — perfect minimax, O is maximiser
+   BUG FIX: first call is isOturn=TRUE (O's move) */
+function aiHard(){
+  let bestScore = -Infinity, bestMove = -1;
+  for(let i = 0; i < 9; i++){
+    if(board[i]) continue;
+    board[i] = 'O';
+    // FIX: after O plays, it's X's turn → isOturn=false
+    const s = minimax(board, false, 0, -Infinity, Infinity);
+    board[i] = null;
+    if(s > bestScore){ bestScore = s; bestMove = i; }
+  }
+  return bestMove;
+}
+
+const AI_FN   = {easy: aiEasy, medium: aiMedium, hard: aiHard};
+const AI_WAIT = {easy: 400,    medium: 600,       hard: 900};
+
+function fireAI(){
+  if(!vsAI || turn !== 'O' || over) return;
+  think(true);
+  setTimeout(() => {
+    think(false);
+    if(!over){
+      const m = AI_FN[diff]();
+      if(m !== -1) doMove(m);
+    }
+  }, AI_WAIT[diff]);
+}
+
+/* ══════════════════════════════
+   MOVE
+══════════════════════════════ */
+function doMove(i){
+  if(board[i] || over) return;
+  board[i] = turn;
+
+  pieces.push(turn === 'X' ? spawnX(i) : spawnO(i));
+  document.querySelector(`.cell[data-i="${i}"]`).classList.add('taken');
+
+  const win = checkWinner(board);
+  if(win){
+    over = true;
+    sc[turn]++;
+    win.forEach(j => document.querySelector(`.cell[data-i="${j}"]`).classList.add('win-cell'));
+    spawnWinLine(win);
+    setSt(turn + ' wins!', true);
+  } else if(board.every(Boolean)){
+    over = true;
+    sc.D++;
+    setSt("It's a draw!", true);
+  } else {
+    turn = turn === 'X' ? 'O' : 'X';
+    setSt(turn + "'s turn", false);
+    fireAI();
+  }
+  refreshSc();
+}
+
+function humanClick(i){
+  if(over || board[i]) return;
+  if(vsAI && turn === 'O') return;
+  doMove(i);
+}
+
+/* ══════════════════════════════
+   UI
+══════════════════════════════ */
+function setSt(txt, fin){
+  document.getElementById('stxt').textContent = txt;
+  if(fin){
+    document.getElementById('dot-x').className = 'dot doff';
+    document.getElementById('dot-o').className = 'dot doff';
+  } else {
+    document.getElementById('dot-x').className = 'dot' + (turn==='X' ? ' dx' : ' doff');
+    document.getElementById('dot-o').className = 'dot' + (turn==='O' ? ' do' : ' doff');
+  }
+}
+function think(on){ document.getElementById('thinking').textContent = on ? '🤖 thinking...' : ''; }
+function refreshSc(){
+  document.getElementById('sx').textContent = sc.X;
+  document.getElementById('so').textContent = sc.O;
+  document.getElementById('sd').textContent = sc.D;
+}
+function newGame(){
+  board = Array(9).fill(null); turn = 'X'; over = false;
+  pieces.forEach(p => pivot.remove(p)); pieces = [];
+  wires.forEach(w => pivot.remove(w));  wires = [];
+  document.querySelectorAll('.cell').forEach(c => c.className = 'cell');
+  think(false);
+  setSt("X's turn", false);
+}
+
+/* ══════════════════════════════
+   BUTTONS
+══════════════════════════════ */
+document.getElementById('m-hvh').addEventListener('click', () => {
+  vsAI = false;
+  document.getElementById('m-hvh').className = 'tab on';
+  document.getElementById('m-hvc').className = 'tab';
+  document.getElementById('diff-grp').style.display = 'none';
+  newGame();
+});
+document.getElementById('m-hvc').addEventListener('click', () => {
+  vsAI = true;
+  document.getElementById('m-hvc').className = 'tab on';
+  document.getElementById('m-hvh').className = 'tab';
+  document.getElementById('diff-grp').style.display = 'flex';
+  newGame();
+});
+
+const DTABS = [
+  ['d-easy', 'easy',   'easy-on'],
+  ['d-med',  'medium', 'med-on'],
+  ['d-hard', 'hard',   'hard-on'],
+];
+DTABS.forEach(([id, val, cls]) => {
+  document.getElementById(id).addEventListener('click', () => {
+    diff = val;
+    DTABS.forEach(([oid,, ocls]) => {
+      document.getElementById(oid).className = 'tab' + (oid===id ? ' '+cls : '');
+    });
+    newGame();
+  });
+});
+
+document.getElementById('new-btn').addEventListener('click', newGame);
+document.getElementById('rst-btn').addEventListener('click', () => {
+  sc = {X:0, O:0, D:0}; refreshSc(); newGame();
+});
+</script>
+</body>
+</html>
